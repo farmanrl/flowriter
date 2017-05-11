@@ -3,6 +3,10 @@ import urllib.request
 import json
 import lyricwikia
 import sys
+import poetrytools
+import pronouncing
+import json
+
 
 logo = """==============================================================
 \033[1m
@@ -25,6 +29,8 @@ try:
     api_key = f.read().replace('\n', '')
 except:
     pass
+
+
 
 genres = """Alternative/Indie
 Blues
@@ -69,7 +75,6 @@ yes_words = ['y', 'ye', 'yea', 'yee', 'yes', 'yeah', 'yup']
 no_words = ['n', 'no', 'nop', 'nope', 'nah', 'nay']
 
 model_types = ['artist', 'album', 'genres', 'decades']
-
 
 def get_model_type():
     while True:
@@ -139,7 +144,8 @@ def get_tracks(model_type, tag, limit):
     response = urllib.request.urlopen(request_url).read().decode('utf-8')
     response_data = json.loads(response)
     response_id = response_data['data'][0]['id']
-    response_url = response_id + '/tracks?api_key=' + api_key + '&limit=' + limit
+    limit_url = '&limit=' + limit
+    response_url = response_id + '/tracks?api_key=' + api_key + limit_url
     tracks_url = base_url + response_url
     tracks_request = urllib.request.urlopen(tracks_url).read().decode('utf-8')
     tracks_data = json.loads(tracks_request)
@@ -147,7 +153,8 @@ def get_tracks(model_type, tag, limit):
         title = i['title']
         artist_name = i['artist_name']
         if artist_name in tracks.keys():
-            tracks[artist_name].append(title)
+            if title not in tracks[artist_name]:
+                tracks[artist_name].append(title)
         else:
             tracks[artist_name] = [title]
     return tracks
@@ -243,7 +250,59 @@ def generate_flow(model):
     return lyric_list
 
 
-def flowriter():
+def generate_rhyme_dict(model):
+    rhyme_dict = {}
+    while len(rhyme_dict) < 1000:
+        sentence = model.make_short_sentence(70)
+        if sentence is not None:
+            rhyme = sentence.split()[-1]
+            if rhyme in rhyme_dict.keys():
+                if sentence not in rhyme_dict[rhyme]:
+                    rhyme_dict[rhyme].append(sentence)
+            else:
+                rhyme_dict[rhyme] = [sentence]
+    return rhyme_dict
+
+
+def levenshtein_distance(s1, s2):
+    if len(s1) > len(s2):
+        s1, s2 = s2, s1
+
+    distances = range(len(s1) + 1)
+    for i2, c2 in enumerate(s2):
+        distances_ = [i2+1]
+        for i1, c1 in enumerate(s1):
+            if c1 == c2:
+                distances_.append(distances[i1])
+            else:
+                distances_.append(1 + min((distances[i1], distances[i1 + 1], distances_[-1])))
+        distances = distances_
+    return distances[-1]
+
+
+def generate_bar(model, rhyme_dict):
+    while True:
+        sentence = model.make_short_sentence(70)
+        best_match = ''
+        distance = float('inf')
+        if sentence is not None:
+            rhyme = sentence.split()[-1]
+            token_sentence = poetrytools.tokenize(sentence)
+            metrical_scheme, num_lines, line_lengths, metre = poetrytools.guess_metre(token_sentence)
+            for key in rhyme_dict.keys():
+                if key.lower() != rhyme.lower() and poetrytools.rhymes(rhyme, key):
+                    sentence_list = rhyme_dict[key]
+                    for sentence2 in sentence_list:
+                        token_sentence2 = poetrytools.tokenize(sentence2)
+                        metrical_scheme2, num_lines2, line_lengths2, metre2 = poetrytools.guess_metre(token_sentence2)
+                        if levenshtein_distance(metrical_scheme[0], metrical_scheme2[0]) < distance:
+                            distance = levenshtein_distance(metrical_scheme[0], metrical_scheme2[0])
+                            best_match = sentence2
+        if best_match != '':
+            return sentence + '\n' + best_match + '\n'
+
+
+def get_model():
     model_type = get_model_type()
     tag = get_tag(model_type)
     limit = get_limit()
@@ -256,11 +315,55 @@ def flowriter():
     lyrics, artists, titles = generate_lyrics(source)
     print("Generating models for tracks...")
     model = generate_model(lyrics)
-    print("Generating markov flow...")
-    flow = generate_flow(model)
+    return model
+
+
+def generate_verse(model, rhyme_dict):
+    verse = ''
+    for i in range(2):
+        verse += generate_bar(model, rhyme_dict)
+    return verse
+
+def generate_chorus(model, rhyme_dict):
+    chorus = ''
+    for i in range(2):
+        chorus += generate_bar(model, rhyme_dict)
+    return chorus
+
+def flowriter():
+    if len(sys.argv) > 1:
+        try:
+            f = open(sys.argv[1] + '.json', 'r')
+            model_json = json.load(f)
+            model = markovify.NewlineText.from_json(
+                model_json
+            )
+            if len(sys.argv) < 2:
+                model = markovify.combine(
+                    [model, get_model()]
+                )
+        except (IOError, OSError) as e:
+            print(e)
+            model = get_model()
+        model_json = model.to_json()
+        with open(sys.argv[1] + '.json', 'w') as f:
+            json.dump(model_json, f)
+    else:
+        model = get_model()
+    # print("Generating markov flow...")
+    # flow = generate_flow(model)
+    print("Generating a rhyme dictionary")
+    rhyme_dict = generate_rhyme_dict(model)
+    print("Generating bars from rhyme dictionary")
     print("--------------------------------------------------------------")
-    for line in flow:
-        print(line)
+    chorus = generate_chorus(model, rhyme_dict)
+    print('\n')
+    for i in range(2):
+        print(generate_verse(model, rhyme_dict))
+    print(chorus)
+    for i in range(2):
+        print(generate_verse(model, rhyme_dict))
+    print(chorus)
     print("--------------------------------------------------------------")
 
 
