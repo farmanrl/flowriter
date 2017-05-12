@@ -4,11 +4,10 @@ import json
 import lyricwikia
 import sys
 import poetrytools
-import pronouncing
-import json
+import time
 
 
-logo = """==============================================================
+logo = """===========================================================================
 \033[1m
     ___ _                   _
    / __) |                 (_)  _
@@ -19,8 +18,8 @@ logo = """==============================================================
 
 
 By Richard Farman\033[0m
-Written in \033[93mPython3\033[0m with \033[94mMusicGraph\033[0m, \033[92mlyricswikia\033[0m, and \033[91mmarkovify\033[0m
-=============================================================="""
+Written in \033[93mPython3\033[0m with \033[94mMusicGraph\033[0m, \033[92mlyricswikia\033[0m, \033[91mmarkovify\033[0m, and \033[1;36mpoetrytools\033[0m
+==========================================================================="""
 
 api_key = None
 
@@ -103,7 +102,7 @@ def get_tag(model_type):
         elif model_type == 'decades':
             if tag in decades:
                 break
-        else:
+        elif tag:
             break
     return tag
 
@@ -112,8 +111,11 @@ def get_limit():
     while True:
         print("\033[1mHow many tracks would you like to model? [1-100]\033[0m")
         limit = input('> ')
-        if int(limit) > 0 and int(limit) < 101:
-            break
+        try:
+            if int(limit) > 0 and int(limit) < 101:
+                break
+        except Exception as e:
+            continue
     return limit
 
 
@@ -250,9 +252,16 @@ def generate_flow(model):
     return lyric_list
 
 
-def generate_rhyme_dict(model):
-    rhyme_dict = {}
-    while len(rhyme_dict) < 1000:
+def generate_rhyme_dict(model, rhyme_dict):
+    timeout = time.time() + 30
+    timeout_limit = 0
+    dict_length = 0
+    while True:
+        if (len(rhyme_dict) == dict_length):
+            timeout_limit += 1
+        else:
+            timeout_limit = 0
+        dict_length = len(rhyme_dict)
         sentence = model.make_short_sentence(70)
         if sentence is not None:
             rhyme = sentence.split()[-1]
@@ -261,6 +270,9 @@ def generate_rhyme_dict(model):
                     rhyme_dict[rhyme].append(sentence)
             else:
                 rhyme_dict[rhyme] = [sentence]
+
+        if time.time() > timeout or timeout_limit > 1000:
+            break
     return rhyme_dict
 
 
@@ -281,6 +293,7 @@ def levenshtein_distance(s1, s2):
 
 
 def generate_bar(model, rhyme_dict):
+    timeout = time.time() + 5
     while True:
         sentence = model.make_short_sentence(70)
         best_match = ''
@@ -299,21 +312,22 @@ def generate_bar(model, rhyme_dict):
                             distance = levenshtein_distance(metrical_scheme[0], metrical_scheme2[0])
                             best_match = sentence2
         if best_match != '':
-            return sentence + '\n' + best_match + '\n'
-
+            return sentence + '\n' + best_match.strip() + '\n'
+        if time.time() > timeout:
+            break
 
 def get_model():
     model_type = get_model_type()
     tag = get_tag(model_type)
     limit = get_limit()
-    print('Getting tracks by', model_type, 'for', tag + '...')
+    print('\033[1mGetting tracks by', model_type, 'for', tag + '...\033[0m')
     if model_type in ['artist', 'album']:
         source = get_tracks(model_type, tag, limit)
     elif model_type in ['genres', 'decades']:
         source = get_playlist(model_type, tag, limit)
-    print("Getting lyrics for tracks...")
+    print("\033[1mGetting lyrics for tracks...")
     lyrics, artists, titles = generate_lyrics(source)
-    print("Generating models for tracks...")
+    print("\033[1mGenerating models for tracks...\033[0m")
     model = generate_model(lyrics)
     return model
 
@@ -324,47 +338,77 @@ def generate_verse(model, rhyme_dict):
         verse += generate_bar(model, rhyme_dict)
     return verse
 
+
 def generate_chorus(model, rhyme_dict):
     chorus = ''
     for i in range(2):
-        chorus += generate_bar(model, rhyme_dict)
-    return chorus
+        bar = generate_bar(model, rhyme_dict)
+        if bar is not None:
+            chorus += bar
+    if chorus:
+        return chorus
+    else:
+        return "\033[1mYour rhyme dictionary size (" + str(len(rhyme_dict)) + ") is not enough to generate a bar\033[0m"
+
 
 def flowriter():
     if len(sys.argv) > 1:
         try:
-            f = open(sys.argv[1] + '.json', 'r')
+            print("\033[1mGetting model from " + sys.argv[1] + "...\033[0m")
+            f = open(sys.argv[1], 'r')
             model_json = json.load(f)
             model = markovify.NewlineText.from_json(
                 model_json
             )
-            if len(sys.argv) < 2:
+            if len(sys.argv) == 3 and sys.argv[2] == 'edit':
                 model = markovify.combine(
                     [model, get_model()]
                 )
+                model_json = model.to_json()
+                print("\033[1mSaving model to " + sys.argv[1] + "...\033[0m")
+                with open(sys.argv[1], 'w') as f:
+                    json.dump(model_json, f)
         except (IOError, OSError) as e:
             print(e)
             model = get_model()
-        model_json = model.to_json()
-        with open(sys.argv[1] + '.json', 'w') as f:
-            json.dump(model_json, f)
+            model_json = model.to_json()
+            print("\033[1mSaving model to " + sys.argv[1] + "\033[0m")
+            with open(sys.argv[1], 'w') as f:
+                json.dump(model_json, f)
+        print("\033[1mGenerating a rhyme dictionary...\033[0m")
+        try:
+            f = open(sys.argv[1].split('.')[0] + '_rhyme.json', 'r')
+            rhyme_dict = generate_rhyme_dict(model, json.load(f))
+        except (IOError, OSError) as e:
+            rhyme_dict = generate_rhyme_dict(model, {})
+        with open(sys.argv[1].split('.')[0] + '_rhyme.json', 'w') as f:
+            json.dump(rhyme_dict, f)
     else:
         model = get_model()
+        print("\033[1mGenerating rhyme dictionary...\033[0m")
+        rhyme_dict = generate_rhyme_dict(model, {})
     # print("Generating markov flow...")
     # flow = generate_flow(model)
-    print("Generating a rhyme dictionary")
-    rhyme_dict = generate_rhyme_dict(model)
-    print("Generating bars from rhyme dictionary")
-    print("--------------------------------------------------------------")
-    chorus = generate_chorus(model, rhyme_dict)
-    print('\n')
-    for i in range(2):
-        print(generate_verse(model, rhyme_dict))
-    print(chorus)
-    for i in range(2):
-        print(generate_verse(model, rhyme_dict))
-    print(chorus)
-    print("--------------------------------------------------------------")
+    print("\033[1mGenerating verses from rhyme dictionary...\033[0m")
+    while True:
+        print("---------------------------------------------------------------------------")
+        print('')
+        chorus = generate_chorus(model, rhyme_dict)
+        # print('\n')
+        # for i in range(2):
+        #     print(generate_verse(model, rhyme_dict))
+        # print(chorus)
+        # for i in range(2):
+        #     print(generate_verse(model, rhyme_dict))
+        print(chorus)
+        print("---------------------------------------------------------------------------")
+        while True:
+            print("\033[1mWould you like to generate another verse? [y/n]\033[0m")
+            response = input('> ')
+            if response in yes_words + no_words:
+                break
+        if response in no_words:
+            break
 
 
 def main():

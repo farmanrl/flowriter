@@ -13,11 +13,17 @@ How it works:
  * Using the MusicGraph API, we can get a list of tracks relevant to the search parameter
  * Using the lyricwikia API, we can then fetch lyrics from those tracks
  * Using the markovify API, we can run each lyric through a markov chain generator, and combine our chains into a model
- * We can then randomly generate sentences based on that model
+ * Using the poetrytools API, we can create lyrics that follows rhyme and rhythm
 
 ## Installation
 
-This project requires that you install lyricwikia and markovify, and get an API key from MusicGraph
+This project requires that you install poetrytools, lyricwikia and markovify, and get an API key from MusicGraph
+
+### poetrytools
+
+Download [this repository](https://github.com/hyperreality/Poetry-Tools)  and use the setup.py file:
+
+```python setup.py install```
 
 ### lyricwikia
 
@@ -43,22 +49,28 @@ Otherwise download [this repository](https://pypi.python.org/pypi/markovify)  an
 
 To get an API key for [MusicGraph](https://developer.musicgraph.com/), sign up on their website and generate a new key through their admin/applications menu.
 
-
 ## Usage
 
 Start by running the program through the command line.
 
 ```python3 flowriter.py```
 
-The program will then require some user input.
+This will build a model without reading or writing data.
 
-```Would you like to model by artist, album, genres, or decades?```
+```python3 flowriter.py data.json```
+
+This will read and write data to and from ```data.json``` and ```data_rhyme.json```.
+
+```python3 flowriter.py data.json edit```
+
+This will read and write data to and from ```data.json``` and ```data_rhyme.json```.
+This will edit the current model stored in ```data.json``` and ```data_rhyme.json```
+
+### Model Type
 
 Choose the model type that you would like to use to generate lyrics.
 
 ### Tag
-
-```Enter the name of the tag that you would like to model:```
 
 Artists and albums will be searched for most relevant result, genres and decades should be one of the following:
 
@@ -106,30 +118,28 @@ Decades:
 
 #### Limit
 
-```How many tracks would you like to model? [1-100]```
-
 This will determine how many tracks are retrieved for lyrics.
 
 #### Model
 
 The program will then get a list of tracks, fetch the lyrics for those tracks, and then generate a model.
 
-```
-Getting tracks by model for tag...
-Getting lyrics for tracks...
-Generating models for tracks...
-Generating markov flow...
-```
+#### Rhyme Dictionary
 
-At last, the program will print four random sentences from the model.
+The program then generates a random list of sentences, and creates a dictionary using the final words of each sentence as a key, with a list of sentences corresponding to that word as a value.
 
-```Would you like to continue? [y/n]```
+#### Generating Bars
 
-You can choose to continue, or exit the program.
+Using the model and the rhyme dictionary, we can generate a bar by creating a sentence from the model, and then finding the best rhyme from the dictionary.
+
+We do this by evaluating both the rhyme and the rhythm of each line. Metre is evaluated using levenshtein distance to determine the most probable flow.
 
 ### Example
+
 ```
-==============================================================
+> python3 flowriter.py
+===========================================================================
+
     ___ _                   _
    / __) |                 (_)  _
  _| |__| | ___  _ _ _  ____ _ _| |_ _____  ____
@@ -137,25 +147,32 @@ You can choose to continue, or exit the program.
   | |  | | |_| | | | | |   | | | |_| ____| |
   |_|   \_)___/ \___/|_|   |_|  \__)_____)_|
 
+
 By Richard Farman
-Written in Python3 with MusicGraph, lyricswikia, and markovify
-==============================================================
+Written in Python3 with MusicGraph, lyricswikia, markovify, and poetrytools
+===========================================================================
 Would you like to model by artist, album, genres, or decades?
 > genres
 Enter the name of the genres that you would like to model:
+['alternative/indie', 'blues', 'cast+recordings/cabaret', 'christian/gospel', "children's", 'classical/opera', 'comedy/spoken+word', 'country', 'electronica/dance', 'folk', 'instrumental', 'jazz', 'latin', 'new+age', 'pop', 'rap/hip+hop', 'reggae/ska', 'rock', 'seasonal', 'soul/r&b', 'soundtracks', 'vocals', 'world']
 > pop
 How many tracks would you like to model? [1-100]
-> 40
+> 20
 Getting tracks by genres for pop...
 Getting lyrics for tracks...
 Generating models for tracks...
-Generating markov flow...
---------------------------------------------------------------
-You are inclined to make it change
-And I won’t judge you
-Oh, if you knock it, ain't no other way
-I tell her baby, baby, baby, baby, baby, baby
---------------------------------------------------------------
+Generating rhyme dictionary...
+Generating verses from rhyme dictionary...
+---------------------------------------------------------------------------
+
+You'll need to be that girl again
+You really think I might go insane
+You come and get it
+I think I could be our little secret
+
+---------------------------------------------------------------------------
+Would you like to generate another verse? [y/n]
+> n
 Would you like to continue? [y/n]
 > n
 ```
